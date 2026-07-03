@@ -1,0 +1,94 @@
+[project]
+name = "ddtwin"
+version = "0.1.0"
+description = "Differentiable Digital Twin: gradient-based inverse design of a deformable structure, with a WebGPU trajectory player."
+authors = [{ name = "Erik Holz", email = "eriklfholz@googlemail.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+keywords = [
+    "differentiable-physics",
+    "inverse-design",
+    "topology-optimization",
+    "pytorch",
+    "digital-twin",
+    "webgpu",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Physics",
+    "Typing :: Typed",
+]
+dependencies = [
+    "torch>=2.2",
+    "numpy>=1.26",
+]
+
+[project.optional-dependencies]
+# Black-box baseline (CMA-ES). Optional: the benchmark degrades gracefully without it.
+baselines = ["cma>=3.3"]
+
+[project.scripts]
+ddtwin = "ddtwin.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/erik2810/differentiable-digital-twin"
+Repository = "https://github.com/erik2810/differentiable-digital-twin"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.6",
+    "pytest>=8.0",
+    "mypy>=1.10",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ddtwin"]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests use bare asserts and occasionally redefine fixtures.
+"tests/*" = ["B011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# PyTorch ships partial stubs; don't fail the build on its dynamic surface.
+[[tool.mypy.overrides]]
+module = ["torch.*", "cma.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# uv: pull the CPU-only PyTorch wheel on Linux (keeps the Docker image small);
+# macOS keeps the default universal wheel from PyPI for local MPS development.
+# ---------------------------------------------------------------------------
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

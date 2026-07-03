@@ -1,0 +1,24 @@
+# Keep the build context (and image) lean.
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+
+# Generated artefacts -- the container regenerates these.
+web/data/*.bin
+web/data/*.json
+out/
+
+# Docs / meta not needed at build time (README is COPYed explicitly).
+ARCHITECTURE.md
+CHANGELOG.md
+CITATION.cff
+*.md
+!README.md

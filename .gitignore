@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments / uv
+.venv/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# OS / editor / local tooling
+.DS_Store
+*.swp
+.claude/
+.idea/
+
+# Container output mount
+out/
+
+# NOTE: web/data/{scene.json,positions.bin} are committed on purpose so the
+# WebGPU player works out of the box without first running the optimiser.

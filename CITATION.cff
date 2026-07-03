@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Differentiable Digital Twin: gradient-based structural inverse design with a WebGPU player"
+abstract: >-
+  An end-to-end demonstrator of differentiable physics for engineering design. A linear-elastic
+  truss is assembled and solved in PyTorch and differentiated end-to-end, so a material
+  distribution is optimised for minimum compliance by backpropagation through the solver. The
+  optimised trajectory is replayed in a dependency-free WebGPU browser player. Includes a
+  reproducible benchmark quantifying the asymptotic speedup of gradient-based over derivative-free
+  (black-box) optimisation.
+type: software
+authors:
+  - given-names: Erik
+    family-names: Holz
+    email: eriklfholz@googlemail.com
+keywords:
+  - differentiable-physics
+  - topology-optimization
+  - inverse-design
+  - automatic-differentiation
+  - pytorch
+  - digital-twin
+  - webgpu
+license: MIT
+version: 0.1.0
+date-released: "2026-06-29"
+references:
+  - type: book
+    title: "Topology Optimization: Theory, Methods, and Applications"
+    authors:
+      - family-names: Bendsøe
+        given-names: "Martin P."
+      - family-names: Sigmund
+        given-names: Ole
+    year: 2003
+    publisher:
+      name: Springer
