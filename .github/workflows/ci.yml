@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync environment (CPU PyTorch)
+        run: uv sync --frozen --extra baselines
+
+      - name: Lint (ruff)
+        run: |
+          uv run ruff check src tests
+          uv run ruff format --check src tests
+
+      - name: Type-check (mypy)
+        run: uv run mypy src
+        continue-on-error: true
+
+      - name: Test (pytest + gradcheck)
+        run: uv run pytest -q
