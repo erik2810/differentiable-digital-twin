@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Differentiable Digital Twin · Trajectory Player</title>
+  <meta name="description" content="WebGPU player for gradient-optimised structural trajectories." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.webgpu.js",
+        "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.tsl.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>Differentiable Digital Twin</h1>
+          <p id="subtitle">gradient-optimised structural trajectory</p>
+        </div>
+      </div>
+      <div class="status">
+        <span class="badge gpu" id="gpu-badge"><span class="dot"></span><span id="gpu-label">initialising</span></span>
+        <span class="badge live"><span class="dot"></span>LIVE TWIN</span>
+      </div>
+    </header>
+
+    <main>
+      <canvas id="scene"></canvas>
+
+      <div class="overlay">
+        <!-- design performance -->
+        <section class="card" aria-label="Design performance">
+          <h2>Design Performance</h2>
+          <div class="headline">
+            <span class="big" id="reduction">--</span><span class="unit">&times;</span>
+            <span class="lbl">stiffer than<br />uniform fill</span>
+          </div>
+          <div class="bars">
+            <div class="bar-row">
+              <span class="name">uniform</span>
+              <span class="bar-track"><span class="bar-fill uniform" id="bar-uniform"></span></span>
+              <span class="val" id="val-uniform">--</span>
+            </div>
+            <div class="bar-row">
+              <span class="name">optimised</span>
+              <span class="bar-track"><span class="bar-fill optimised" id="bar-optimised"></span></span>
+              <span class="val" id="val-optimised">--</span>
+            </div>
+          </div>
+          <p class="subnote" id="subnote">compliance &middot; lower is stiffer</p>
+        </section>
+
+        <!-- domain + optimiser -->
+        <section class="card" aria-label="Twin specification">
+          <h2>Twin Specification</h2>
+          <div class="kv">
+            <span class="k">Mesh</span><span class="v" id="kv-mesh">--</span>
+            <span class="k">Nodes / springs</span><span class="v" id="kv-dofs">--</span>
+            <span class="k">Material budget</span><span class="v accent" id="kv-budget">--</span>
+            <span class="k">Tip deflection</span><span class="v" id="kv-defl">--</span>
+            <span class="k">Optimiser solves</span><span class="v primary" id="kv-sims">--</span>
+            <span class="k">Compliance</span><span class="v" id="kv-loss">--</span>
+          </div>
+          <canvas class="spark" id="spark" width="268" height="44" aria-hidden="true"></canvas>
+        </section>
+
+        <!-- visualisation controls -->
+        <section class="card" aria-label="Visualisation controls">
+          <h2>Visualisation</h2>
+          <div class="legend">
+            <span>soft</span><span class="ramp"></span><span>stiff</span>
+          </div>
+          <div class="control">
+            <label for="scale">displacement scale <b id="scale-val">20&times;</b></label>
+            <input type="range" id="scale" min="1" max="60" step="1" value="20" />
+          </div>
+          <div class="control">
+            <label for="relief">material relief <b id="relief-val">0.8</b></label>
+            <input type="range" id="relief" min="0" max="2" step="0.1" value="0.8" />
+          </div>
+          <div class="toggles">
+            <button class="toggle" id="t-wire" aria-pressed="false">wireframe</button>
+            <button class="toggle" id="t-supports" aria-pressed="true">supports</button>
+            <button class="toggle" id="t-load" aria-pressed="true">load vector</button>
+            <button class="toggle" id="t-spin" aria-pressed="false">auto-rotate</button>
+          </div>
+        </section>
+      </div>
+
+      <div id="loader">
+        <div>
+          <div class="spin" id="spin"></div>
+          <p id="loader-msg">loading optimised trajectory&hellip;</p>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <button class="transport-btn" id="play" aria-label="Play / pause">
+        <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+      </button>
+      <div class="timeline">
+        <input type="range" id="seek" min="0" max="100" step="1" value="0" aria-label="Timeline" />
+        <span class="frame-readout">frame <b id="frame-cur">0</b> / <span id="frame-tot">0</span></span>
+      </div>
+      <div class="speed" role="group" aria-label="Playback speed">
+        <button data-speed="0.5" aria-pressed="false">0.5&times;</button>
+        <button data-speed="1" aria-pressed="true">1&times;</button>
+        <button data-speed="2" aria-pressed="false">2&times;</button>
+      </div>
+    </footer>
+  </div>
+
+  <script type="module" src="player.js"></script>
+</body>
+</html>
