@@ -6,7 +6,7 @@
 through a physics solver, then replayed in the browser on WebGPU.**
 
 [![Live demo](https://img.shields.io/badge/live%20demo-WebGPU%20player-D97706)](https://erik2810.github.io/differentiable-digital-twin/)
-[![CI](https://img.shields.io/badge/CI-ruff%20%2B%20pytest-1E40AF)](.github/workflows/ci.yml)
+[![CI](https://github.com/erik2810/differentiable-digital-twin/actions/workflows/ci.yml/badge.svg)](https://github.com/erik2810/differentiable-digital-twin/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/badge/python-3.11-3B82F6)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-D97706)](https://pytorch.org)
 [![License](https://img.shields.io/badge/license-MIT-1E40AF)](LICENSE)
@@ -210,6 +210,22 @@ cd web && python -m http.server 8080      # open http://localhost:8080
 
 Drag to orbit; scrub the timeline; raise **displacement scale** to exaggerate the deflection;
 toggle the **wireframe** to see the truss members.
+
+### Python API
+
+One static solve and one backward pass, gradients w.r.t. every density at once:
+
+```python
+import torch
+from ddtwin.geometry import Sheet
+from ddtwin.physics import solve_static
+
+sheet = Sheet.cantilever(rows=6, cols=10)
+density = torch.full((sheet.num_nodes,), 0.4, requires_grad=True)
+result = solve_static(sheet, density)
+result.compliance.backward()              # d(compliance)/d(density) in one pass
+print(result.compliance.item(), density.grad.shape)   # scalar, (60,)
+```
 
 ### Docker
 

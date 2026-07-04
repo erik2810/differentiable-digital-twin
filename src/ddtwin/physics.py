@@ -144,6 +144,17 @@ def _assemble_stiffness(sheet: Sheet, k: Tensor) -> Tensor:
 def solve_static(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) -> StaticResult:
     """Solve ``K(rho) u = f`` and return the displacement and compliance.
 
+    Args:
+        sheet: Geometry and topology; supplies the ``N`` nodes and the edge list.
+        density: Per-node material density, shape ``(N,)``, values in ``(0, 1)``.
+            Mapped to axial stiffness through the SIMP interpolation in ``cfg``.
+        cfg: Material, load, and animation parameters; defaults to ``SimConfig()``.
+
+    Returns:
+        A :class:`StaticResult` with displacement ``u`` of shape ``(N, 3)`` (pinned
+        and out-of-plane ``y`` DOFs are zero by construction) and the scalar
+        compliance ``C = f . u``.
+
     Differentiating ``result.compliance`` w.r.t. ``density`` yields the full design gradient.
     """
     cfg = cfg or SimConfig()
@@ -191,7 +202,11 @@ def _settle_envelope(cfg: SimConfig, dtype: torch.dtype, device: torch.device) -
 
 
 def simulate(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) -> SimResult:
-    """Static solve plus a synthesised settling animation (``rest + envelope(t) * u``)."""
+    """Static solve plus a synthesised settling animation (``rest + envelope(t) * u``).
+
+    Returns a :class:`SimResult` whose ``positions`` have shape ``(frames, N, 3)``,
+    starting at the rest configuration and settling into the deformed one.
+    """
     cfg = cfg or SimConfig()
     static = solve_static(sheet, density, cfg)
     env = _settle_envelope(cfg, sheet.rest.dtype, sheet.device)  # (F,)

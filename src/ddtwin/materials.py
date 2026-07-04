@@ -54,7 +54,7 @@ class MaterialField:
         return torch.sigmoid(self.logits)
 
     def volume_fraction(self) -> Tensor:
-        """Mean density -- the fraction of the budget currently used."""
+        """Mean of the ``(N,)`` density field -- the fraction of the budget currently used."""
         return self.density().mean()
 
     @property

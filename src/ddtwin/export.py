@@ -81,7 +81,10 @@ def export_scene(
 
 
 def load_positions(path: str | Path, frames: int, nodes: int) -> torch.Tensor:
-    """Re-read ``positions.bin`` (used by tests / round-trip checks)."""
+    """Re-read ``positions.bin`` (used by tests / round-trip checks).
+
+    The file is raw little-endian ``float32``; the result has shape ``(frames, nodes, 3)``.
+    """
     raw = Path(path).read_bytes()
     flat = torch.frombuffer(bytearray(raw), dtype=torch.float32)
     return flat.reshape(frames, nodes, 3)

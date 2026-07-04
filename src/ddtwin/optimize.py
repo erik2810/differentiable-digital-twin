@@ -87,7 +87,13 @@ def _uniform_reference(sheet: Sheet, cfg: InverseDesignConfig) -> tuple[float, f
 def inverse_design(
     sheet: Sheet, cfg: InverseDesignConfig | None = None, *, progress: bool = False
 ) -> InverseDesignResult:
-    """Optimise the material distribution with Adam + autodiff through the static solve."""
+    """Optimise the material distribution with Adam + autodiff through the static solve.
+
+    The design variable is the per-node logit field (``rho = sigmoid(theta)``, shape
+    ``(N,)``); the loss is the compliance plus a quadratic penalty on the material
+    budget. Returns the optimised field together with per-iteration loss, compliance,
+    and volume histories.
+    """
     cfg = cfg or InverseDesignConfig()
     torch.manual_seed(cfg.seed)
 
