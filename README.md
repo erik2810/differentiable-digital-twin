@@ -15,6 +15,8 @@ through a physics solver, then replayed in the browser on WebGPU.**
 
 </div>
 
+![Optimised structure replaying in the WebGPU player](assets/demo.gif)
+
 ```
         L O A D                                                              ┌── PyTorch ──┐
           │                                                                  │  K(ρ)u = f  │  forward  solve
