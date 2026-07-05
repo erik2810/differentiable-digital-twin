@@ -232,12 +232,17 @@ print(result.compliance.item(), density.grad.shape)   # scalar, (60,)
 ### Docker
 
 The training framework is containerised as a slim, non-root, CPU-only image (the lockfile pins
-the CPU PyTorch wheel on Linux):
+the CPU PyTorch wheel on Linux). A prebuilt image is published to GHCR on every push to main:
+
+```bash
+# optimise inside the container; the trajectory lands in ./out for the player
+docker run --rm -v "$PWD/out:/app/web/data" ghcr.io/erik2810/differentiable-digital-twin optimise --float32
+```
+
+Or build it locally:
 
 ```bash
 docker build -t ddtwin .
-
-# optimise inside the container; the trajectory lands in ./out for the player
 docker run --rm -v "$PWD/out:/app/web/data" ddtwin optimise --float32
 ```
 

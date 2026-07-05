@@ -11,7 +11,7 @@ abstract: >-
 type: software
 authors:
   - given-names: Erik
-    family-names: Holz
+    family-names: Löffelholz
     email: eriklfholz@googlemail.com
 keywords:
   - differentiable-physics
