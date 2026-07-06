@@ -1,6 +1,6 @@
 [project]
 name = "ddtwin"
-version = "0.1.0"
+version = "0.1.1"
 description = "Differentiable Digital Twin: gradient-based inverse design of a deformable structure, with a WebGPU trajectory player."
 authors = [{ name = "Erik Holz", email = "eriklfholz@googlemail.com" }]
 readme = "README.md"

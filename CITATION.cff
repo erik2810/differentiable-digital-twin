@@ -22,8 +22,8 @@ keywords:
   - digital-twin
   - webgpu
 license: MIT
-version: 0.1.0
-date-released: "2026-06-29"
+version: 0.1.1
+date-released: "2026-07-06"
 references:
   - type: book
     title: "Topology Optimization: Theory, Methods, and Applications"
