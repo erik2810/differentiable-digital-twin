@@ -10,6 +10,7 @@ through a physics solver, then replayed in the browser on WebGPU.**
 [![Python](https://img.shields.io/badge/python-3.11-3B82F6)](pyproject.toml)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-D97706)](https://pytorch.org)
 [![License](https://img.shields.io/badge/license-MIT-1E40AF)](LICENSE)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.21214822.svg)](https://doi.org/10.5281/zenodo.21214822)
 
 **▶ Live WebGPU demo: https://erik2810.github.io/differentiable-digital-twin/**
 

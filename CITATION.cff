@@ -24,6 +24,15 @@ keywords:
 license: MIT
 version: 0.1.1
 date-released: "2026-07-06"
+doi: 10.5281/zenodo.21214822
+repository-code: "https://github.com/erik2810/differentiable-digital-twin"
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21214822
+    description: "Concept DOI (all versions)"
+  - type: doi
+    value: 10.5281/zenodo.21214823
+    description: "Version 0.1.1"
 references:
   - type: book
     title: "Topology Optimization: Theory, Methods, and Applications"
