@@ -40,7 +40,10 @@ from ddtwin.optimize import InverseDesignConfig, inverse_design
 from ddtwin.physics import solve_static
 
 # Mesh sizes to sweep: (rows, cols). N = rows * cols; the dense matrix is (3N, 3N).
-SIZES = [(24, 40), (32, 56), (40, 72)]
+SIZES = [(24, 40), (32, 56), (40, 72), (80, 140)]
+# Above this node count the dense path is skipped: its (3N, 3N) matrix plus the
+# autograd copies held for backward would swamp the machine.
+DENSE_MAX_NODES = 2880
 DTYPE = torch.float32  # float32 so the dense-matrix bytes (and any AMP) are meaningful
 
 
@@ -50,26 +53,31 @@ def _peak_rss_mb() -> float:
     return peak / 1e6 if sys.platform == "darwin" else peak / 1e3
 
 
-def _one_backward(rows: int, cols: int, checkpointed: bool) -> None:
+def _one_backward(rows: int, cols: int, mode: str) -> None:
     """One forward+backward of the compliance loss; used inside a worker process."""
     from torch.utils.checkpoint import checkpoint
+
+    from ddtwin.physics import SimConfig
 
     sheet = Sheet.cantilever(rows=rows, cols=cols, device="cpu", dtype=DTYPE)
     field = MaterialField(sheet, init=0.4)
     density = field.density()
+    cfg = SimConfig(sparse=(mode == "sparse"))
 
     def loss_fn(d: torch.Tensor) -> torch.Tensor:
-        result = solve_static(sheet, d)
+        result = solve_static(sheet, d, cfg)
         return result.compliance + 60.0 * torch.relu(d.mean() - 0.4) ** 2
 
-    loss = checkpoint(loss_fn, density, use_reentrant=False) if checkpointed else loss_fn(density)
+    if mode == "checkpoint":
+        loss = checkpoint(loss_fn, density, use_reentrant=False)
+    else:
+        loss = loss_fn(density)
     loss.backward()
     print(f"{_peak_rss_mb():.1f}")
 
 
-def _measure(rows: int, cols: int, checkpointed: bool) -> float:
+def _measure(rows: int, cols: int, mode: str) -> float:
     """Run one backward in a fresh subprocess and return its peak RSS in MB."""
-    mode = "checkpoint" if checkpointed else "baseline"
     out = subprocess.run(
         [sys.executable, __file__, "--worker", str(rows), str(cols), mode],
         capture_output=True,
@@ -87,31 +95,35 @@ def _dense_matrix_mb(n_nodes: int) -> float:
 
 def profile() -> None:
     print(f"device: CPU, dtype: {DTYPE}\n")
-    print("Peak memory of one forward+backward, dense (3N,3N) solve:")
+    print("Peak memory of one forward+backward of the compliance loss:")
     print(
         f"{'nodes':>7} | {'3N':>6} | {'dense K (MB)':>12} | "
-        f"{'baseline RSS':>13} | {'checkpoint RSS':>15} | {'saved':>7}"
+        f"{'dense RSS':>11} | {'checkpoint':>11} | {'sparse RSS':>11}"
     )
-    print(f"{'-' * 7}-+-{'-' * 6}-+-{'-' * 12}-+-{'-' * 13}-+-{'-' * 15}-+-{'-' * 7}")
+    print(f"{'-' * 7}-+-{'-' * 6}-+-{'-' * 12}-+-{'-' * 11}-+-{'-' * 11}-+-{'-' * 11}")
     for rows, cols in SIZES:
         n = rows * cols
-        base = _measure(rows, cols, checkpointed=False)
-        ckpt = _measure(rows, cols, checkpointed=True)
-        saved = base - ckpt
+        dense_ok = n <= DENSE_MAX_NODES
+        base = _measure(rows, cols, "baseline") if dense_ok else None
+        ckpt = _measure(rows, cols, "checkpoint") if dense_ok else None
+        sparse = _measure(rows, cols, "sparse")
+        base_c = f"{base:>8.1f} MB" if base is not None else f"{'skipped':>11}"
+        ckpt_c = f"{ckpt:>8.1f} MB" if ckpt is not None else f"{'skipped':>11}"
         print(
             f"{n:>7} | {3 * n:>6} | {_dense_matrix_mb(n):>12.1f} | "
-            f"{base:>10.1f} MB | {ckpt:>12.1f} MB | {saved:>4.0f} MB"
+            f"{base_c} | {ckpt_c} | {sparse:>8.1f} MB"
         )
 
     print(
-        "\nReading: the peak tracks the dense (3N,3N) matrix, which grows O(N^2) and is\n"
-        "what makes a high-resolution mesh run out of memory. Gradient checkpointing does\n"
-        "NOT lower that peak here: the matrix and its factorisation are transient and are\n"
-        "rebuilt in the checkpoint's backward recompute, so both passes hold the same\n"
-        "O(N^2) object. Checkpointing pays off for deep or long-rollout models where many\n"
-        "activations accumulate; this loop is a single static solve, so the real fix is a\n"
-        "sparse stiffness assembly (the matrix is >99% zeros), which cuts the memory to\n"
-        "O(N). The checkpoint / AMP plumbing is wired in and off by default."
+        "\nReading: the dense peak tracks the (3N,3N) stiffness matrix, which grows O(N^2)\n"
+        "and is what caps the mesh resolution. Gradient checkpointing does NOT lower that\n"
+        "peak: the matrix is transient and is rebuilt in the checkpoint's recompute, so\n"
+        "both passes hold the same O(N^2) object (checkpointing pays off for deep or\n"
+        "long-rollout models, not a single static solve). The sparse path is the real\n"
+        "fix: the matrix is never assembled at all. A matrix-free operator applies K in\n"
+        "O(E) inside a conjugate-gradient solve, and the backward pass is a hand-written\n"
+        "adjoint (one more CG solve), so memory grows O(N) and the largest mesh here\n"
+        "runs where the dense path is not even attempted."
     )
 
 
@@ -141,7 +153,7 @@ def main() -> None:
 
     if args.worker is not None:
         rows, cols, mode = args.worker
-        _one_backward(int(rows), int(cols), checkpointed=(mode == "checkpoint"))
+        _one_backward(int(rows), int(cols), mode)
         return
 
     profile()

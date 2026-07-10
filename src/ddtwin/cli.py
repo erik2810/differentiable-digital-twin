@@ -47,7 +47,7 @@ def _cmd_optimise(args: argparse.Namespace) -> None:
         iters=args.iters,
         lr=args.lr,
         vol_frac=args.vol_frac,
-        sim=SimConfig(frames=args.frames),
+        sim=SimConfig(frames=args.frames, sparse=args.sparse),
     )
     print(
         f"[optimise] cantilever {args.rows}x{args.cols} ({sheet.num_nodes} nodes, "
@@ -160,6 +160,11 @@ def main(argv: list[str] | None = None) -> None:
     _common(p_opt)
     p_opt.add_argument("--iters", type=int, default=160)
     p_opt.add_argument("--lr", type=float, default=0.08)
+    p_opt.add_argument(
+        "--sparse",
+        action="store_true",
+        help="matrix-free CG solve: O(N) memory instead of the dense (3N)^2 matrix",
+    )
     p_opt.add_argument("--out", type=str, default=None, help="export dir (default web/data)")
     p_opt.set_defaults(func=_cmd_optimise)
 

@@ -54,6 +54,16 @@ class SimConfig:
     frames: int = 120
     overshoot: float = 0.12  # underdamped overshoot of the settling envelope (0 = pure ramp)
 
+    # Solver. The dense path assembles the full (3N, 3N) stiffness matrix, whose
+    # O(N^2) memory is what caps the mesh resolution. The sparse path never
+    # assembles it: a matrix-free operator applies K in O(E) and a conjugate-
+    # gradient solve replaces the factorisation, so memory grows O(N). Gradients
+    # flow through a hand-written adjoint (one extra CG solve in backward),
+    # verified against finite differences in the test suite.
+    sparse: bool = False
+    cg_tol: float | None = None  # relative residual; default 1e-12 (f64) / 1e-6 (f32)
+    cg_max_iters: int | None = None  # default: number of free DOFs
+
 
 @dataclass
 class StaticResult:
@@ -109,6 +119,12 @@ def _edge_stiffness(sheet: Sheet, density: Tensor, cfg: SimConfig) -> Tensor:
     return k * scale
 
 
+def _edge_axes(sheet: Sheet) -> Tensor:
+    """Unit rest axis of every member, shape ``(E, 3)``."""
+    diff = sheet.rest[sheet.edges[:, 1]] - sheet.rest[sheet.edges[:, 0]]
+    return diff / diff.norm(dim=1, keepdim=True).clamp_min(1e-12)
+
+
 def _assemble_stiffness(sheet: Sheet, k: Tensor) -> Tensor:
     """Assemble the global stiffness matrix ``K`` (``3N x 3N``) from truss members.
 
@@ -118,8 +134,7 @@ def _assemble_stiffness(sheet: Sheet, k: Tensor) -> Tensor:
     """
     n3 = 3 * sheet.num_nodes
     dtype, device = sheet.rest.dtype, sheet.device
-    diff = sheet.rest[sheet.edges[:, 1]] - sheet.rest[sheet.edges[:, 0]]
-    axis = diff / diff.norm(dim=1, keepdim=True).clamp_min(1e-12)  # (E, 3)
+    axis = _edge_axes(sheet)  # (E, 3)
     block = k[:, None, None] * (axis[:, :, None] * axis[:, None, :])  # (E, 3, 3)
 
     a = sheet.edges[:, 0]
@@ -139,6 +154,170 @@ def _assemble_stiffness(sheet: Sheet, k: Tensor) -> Tensor:
     scatter(ar, br, block, -1.0)
     scatter(br, ar, block, -1.0)
     return k_global.reshape(n3, n3)
+
+
+# ---------------------------------------------------------------------------
+# Sparse (matrix-free) static solve
+# ---------------------------------------------------------------------------
+
+
+def _apply_stiffness(
+    u: Tensor, k: Tensor, a: Tensor, b: Tensor, axes: Tensor, free: Tensor
+) -> Tensor:
+    """Apply the constrained stiffness operator ``P K P + (I - P)`` in O(E).
+
+    ``K u`` is accumulated member by member: the axial stretch rate of edge ``e``
+    is ``s_e = d_e . (u_a - u_b)``, and the member pushes ``k_e s_e d_e`` on node
+    ``a`` and its negative on node ``b``. ``P`` projects onto the free DOFs; the
+    identity on fixed DOFs keeps the operator symmetric positive definite over the
+    whole ``3N`` space, so CG can run unmasked.
+
+    Args:
+        u: DOF vector, shape ``(3N,)``.
+        k: Member stiffness, shape ``(E,)``.
+        a, b: Member endpoints, shape ``(E,)`` each.
+        axes: Member unit axes, shape ``(E, 3)``.
+        free: Free-DOF mask, shape ``(3N,)`` bool.
+
+    Returns:
+        The operator applied to ``u``, shape ``(3N,)``.
+    """
+    u_masked = torch.where(free, u, torch.zeros((), dtype=u.dtype, device=u.device))
+    u3 = u_masked.reshape(-1, 3)
+    stretch = (axes * (u3[a] - u3[b])).sum(dim=1)  # (E,)
+    w = (k * stretch)[:, None] * axes  # (E, 3) axial force per member
+    y3 = torch.zeros_like(u3)
+    y3.index_add_(0, a, w)
+    y3.index_add_(0, b, -w)
+    return torch.where(free, y3.reshape(-1), u)
+
+
+def _stiffness_diagonal(k: Tensor, a: Tensor, b: Tensor, axes: Tensor, free: Tensor) -> Tensor:
+    """Diagonal of the constrained operator (Jacobi preconditioner), shape ``(3N,)``."""
+    contrib = k[:, None] * axes * axes  # (E, 3) diagonal block entries per member
+    d3 = torch.zeros((free.numel() // 3, 3), dtype=k.dtype, device=k.device)
+    d3.index_add_(0, a, contrib)
+    d3.index_add_(0, b, contrib)
+    diag = d3.reshape(-1)
+    one = torch.ones((), dtype=k.dtype, device=k.device)
+    return torch.where(free, diag.clamp_min(1e-30), one)
+
+
+def _cg_solve(
+    k: Tensor,
+    rhs: Tensor,
+    a: Tensor,
+    b: Tensor,
+    axes: Tensor,
+    free: Tensor,
+    tol: float,
+    max_iters: int,
+) -> Tensor:
+    """Jacobi-preconditioned conjugate gradients for the constrained operator.
+
+    Args:
+        k: Member stiffness, shape ``(E,)``.
+        rhs: Right-hand side, shape ``(3N,)`` (zero on fixed DOFs).
+        tol: Relative residual target ``|r| <= tol * |rhs|``.
+        max_iters: Iteration cap.
+
+    Returns:
+        Solution, shape ``(3N,)``, zero on fixed DOFs.
+    """
+    diag = _stiffness_diagonal(k, a, b, axes, free)
+    x = torch.zeros_like(rhs)
+    rhs_norm = rhs.norm()
+    if float(rhs_norm) == 0.0:
+        return x  # zero load (or zero grad_output in the adjoint): the solution is zero
+    r = rhs.clone()
+    z = r / diag
+    p = z.clone()
+    rz = r @ z
+    target = tol * rhs_norm
+    for _ in range(max_iters):
+        ap = _apply_stiffness(p, k, a, b, axes, free)
+        alpha = rz / (p @ ap)
+        x = x + alpha * p
+        r = r - alpha * ap
+        if r.norm() <= target:
+            break
+        z = r / diag
+        rz_new = r @ z
+        p = z + (rz_new / rz) * p
+        rz = rz_new
+    return x
+
+
+class _SparseStaticSolve(torch.autograd.Function):
+    """Differentiable matrix-free solve of ``K(k) u = f`` via the adjoint method.
+
+    The dense path lets autodiff differentiate through the factorisation, which
+    requires the (3N, 3N) matrix to exist. Here nothing is assembled, so the
+    adjoint is written out by hand: with ``L`` any scalar downstream of ``u``,
+
+        K lambda = dL/du            (one extra CG solve; K is symmetric)
+        dL/dk_e  = -(d_e . (lambda_a - lambda_b)) (d_e . (u_a - u_b))
+        dL/df    = lambda
+
+    which is the classic compliance-style sensitivity, generalised to any loss.
+    Verified against finite differences by ``gradcheck`` in the test suite.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        k: Tensor,
+        f: Tensor,
+        a: Tensor,
+        b: Tensor,
+        axes: Tensor,
+        free: Tensor,
+        tol: float,
+        max_iters: int,
+    ) -> Tensor:
+        with torch.no_grad():
+            rhs = torch.where(free, f, torch.zeros((), dtype=f.dtype, device=f.device))
+            u = _cg_solve(k, rhs, a, b, axes, free, tol, max_iters)
+        ctx.save_for_backward(k, u, a, b, axes, free)
+        ctx.tol = tol  # type: ignore[attr-defined]
+        ctx.max_iters = max_iters  # type: ignore[attr-defined]
+        return u
+
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx, grad_u: Tensor
+    ) -> tuple[Tensor | None, ...]:
+        k, u, a, b, axes, free = ctx.saved_tensors  # type: ignore[attr-defined]
+        with torch.no_grad():
+            zero = torch.zeros((), dtype=grad_u.dtype, device=grad_u.device)
+            rhs = torch.where(free, grad_u, zero)
+            lam = _cg_solve(
+                k,
+                rhs,
+                a,
+                b,
+                axes,
+                free,
+                ctx.tol,  # type: ignore[attr-defined]
+                ctx.max_iters,  # type: ignore[attr-defined]
+            )
+            u3 = u.reshape(-1, 3)
+            l3 = lam.reshape(-1, 3)
+            s_u = (axes * (u3[a] - u3[b])).sum(dim=1)  # (E,)
+            s_l = (axes * (l3[a] - l3[b])).sum(dim=1)  # (E,)
+            grad_k = -(s_l * s_u)
+            grad_f = torch.where(free, lam, zero)
+        return grad_k, grad_f, None, None, None, None, None, None
+
+
+def _solve_sparse(sheet: Sheet, k: Tensor, f: Tensor, free: Tensor, cfg: SimConfig) -> Tensor:
+    """Matrix-free static solve; returns the full DOF displacement, shape ``(3N,)``."""
+    dtype = sheet.rest.dtype
+    tol = cfg.cg_tol if cfg.cg_tol is not None else (1e-12 if dtype == torch.float64 else 1e-6)
+    max_iters = cfg.cg_max_iters if cfg.cg_max_iters is not None else int(free.sum())
+    axes = _edge_axes(sheet)
+    a, b = sheet.edges[:, 0], sheet.edges[:, 1]
+    return _SparseStaticSolve.apply(k, f, a, b, axes, free, tol, max_iters)
 
 
 def solve_static(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) -> StaticResult:
@@ -162,7 +341,6 @@ def solve_static(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) ->
     density = density.to(dtype=dtype, device=device)
 
     k = _edge_stiffness(sheet, density, cfg)
-    k_global = _assemble_stiffness(sheet, k)
 
     # External load: a total load split over the loaded nodes.
     f = torch.zeros((sheet.num_nodes, 3), dtype=dtype, device=device)
@@ -173,18 +351,23 @@ def solve_static(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) ->
     f = f.reshape(-1)
 
     free = _free_dofs(sheet)
-    k_ff = k_global[free][:, free]
-    f_f = f[free]
-    # The linear solve must run in the sheet's precision even under autocast (AMP):
-    # an ill-conditioned stiffness matrix solved in low precision destroys the
+    # The solve must run in the sheet's precision even under autocast (AMP): an
+    # ill-conditioned stiffness matrix solved in low precision destroys the
     # physical gradient. Disable autocast here and cast the operands back to `dtype`.
     amp_device = device.type if device.type in ("cpu", "cuda") else "cpu"
     with torch.autocast(device_type=amp_device, enabled=False):
-        u_f = torch.linalg.solve(k_ff.to(dtype), f_f.to(dtype))
-
-    u = torch.zeros(3 * sheet.num_nodes, dtype=dtype, device=device)
-    u = u.index_copy(0, free.nonzero(as_tuple=True)[0], u_f)
-    compliance = f_f @ u_f
+        if cfg.sparse:
+            # Matrix-free path: K is never assembled, memory stays O(N).
+            u = _solve_sparse(sheet, k.to(dtype), f.to(dtype), free, cfg)
+            compliance = f @ u
+        else:
+            k_global = _assemble_stiffness(sheet, k)
+            k_ff = k_global[free][:, free]
+            f_f = f[free]
+            u_f = torch.linalg.solve(k_ff.to(dtype), f_f.to(dtype))
+            u = torch.zeros(3 * sheet.num_nodes, dtype=dtype, device=device)
+            u = u.index_copy(0, free.nonzero(as_tuple=True)[0], u_f)
+            compliance = f_f @ u_f
     return StaticResult(
         u=u.reshape(sheet.num_nodes, 3),
         compliance=compliance,

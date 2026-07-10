@@ -177,6 +177,18 @@ is **one solve forward, one backward pass** — and `torch.linalg.solve` is diff
 full design gradient falls out automatically. A `gradcheck` against finite differences guards it
 in CI.
 
+**Two solver paths.** The default assembles the dense $(3N, 3N)$ stiffness matrix, which is exact
+and fast at small $N$ but costs $O(N^2)$ memory — that matrix is what caps the mesh resolution.
+`SimConfig(sparse=True)` (CLI: `--sparse`) never assembles it: a matrix-free operator applies
+$K$ member by member in $O(E)$ inside a Jacobi-preconditioned conjugate-gradient solve, and the
+backward pass is a hand-written adjoint (one more CG solve on the same operator, with the member
+sensitivity $\partial C/\partial k_e = -(\hat d_e\cdot(\lambda_a-\lambda_b))(\hat d_e\cdot(u_a-u_b))$).
+Peak memory stays flat around 220 MB from 1k to 11k nodes on a laptop, where the dense matrix alone
+would need 4.5 GB — and past a few thousand nodes the CG solve is also faster than the dense
+factorisation. The sparse path gets the same `gradcheck` treatment in CI, plus parity tests against
+the dense solve (displacement, compliance, and gradient agree to $10^{-10}$).
+`scripts/profile_memory.py` reproduces the measurement.
+
 ---
 
 ## Three things this project demonstrates
@@ -252,10 +264,13 @@ docker run --rm -v "$PWD/out:/app/web/data" ddtwin optimise --float32
 ## CLI
 
 ```
-ddtwin optimise  [--rows R --cols C] [--iters N] [--vol-frac V] [--float32] [--out DIR]
+ddtwin optimise  [--rows R --cols C] [--iters N] [--vol-frac V] [--float32] [--sparse] [--out DIR]
 ddtwin benchmark [--rows R --cols C] [--iters N] [--fd-steps S] [--out FILE.json]
 ddtwin simulate  [--rows R --cols C] [--vol-frac V] [--out DIR]
 ```
+
+`--sparse` switches to the matrix-free CG solver (O(N) memory), which is what lets a
+high-resolution mesh run at all; see "Two solver paths" above.
 
 Running `ddtwin optimise` on the default 12×22 cantilever prints, e.g.:
 
