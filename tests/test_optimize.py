@@ -33,3 +33,25 @@ def test_density_in_unit_interval() -> None:
     res = inverse_design(sheet, InverseDesignConfig(iters=40))
     assert float(res.density.min()) >= 0.0
     assert float(res.density.max()) <= 1.0
+
+
+def test_checkpoint_reproduces_baseline() -> None:
+    # Gradient checkpointing recomputes the solve in backward; it is a pure
+    # memory/compute trade and must not change the optimisation at all.
+    sheet = Sheet.cantilever(rows=6, cols=10, dtype=torch.float64)
+    base = inverse_design(sheet, InverseDesignConfig(iters=25, seed=0))
+    ckpt = inverse_design(sheet, InverseDesignConfig(iters=25, seed=0, use_checkpoint=True))
+    assert ckpt.loss_history == base.loss_history
+
+
+def test_amp_is_stable() -> None:
+    # AMP keeps the linear solve in the sheet's precision, so the run stays finite
+    # and still reduces the loss (on float64 autocast is a no-op, so it matches too).
+    import math
+
+    sheet = Sheet.cantilever(rows=6, cols=10, dtype=torch.float64)
+    res = inverse_design(
+        sheet, InverseDesignConfig(iters=25, seed=0, use_checkpoint=True, use_amp=True)
+    )
+    assert all(math.isfinite(v) for v in res.loss_history)
+    assert res.loss_history[-1] < res.loss_history[0]

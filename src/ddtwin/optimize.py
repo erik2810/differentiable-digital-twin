@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 
 import torch
 from torch import Tensor
+from torch.utils.checkpoint import checkpoint
 
 from ddtwin.geometry import Sheet
 from ddtwin.materials import MaterialField
@@ -38,6 +39,19 @@ class InverseDesignConfig:
     seed: int = 0
     log_every: int = 20
     sim: SimConfig = field(default_factory=SimConfig)
+
+    # Memory / throughput options (both off by default, so the result is unchanged).
+    #
+    # use_checkpoint: gradient-checkpoint the static solve. The dense (3N)x(3N)
+    #   stiffness matrix and the solve's saved tensors are recomputed in the
+    #   backward pass instead of held from the forward, trading one extra solve for
+    #   a lower retained-activation peak so higher node counts fit in memory.
+    # use_amp: run the forward under Automatic Mixed Precision (`torch.autocast`)
+    #   with a `GradScaler`. The linear solve stays in the sheet's precision (see
+    #   `physics.solve_static`), so the physical gradient is unaffected; AMP only
+    #   accelerates fp32 elementwise/matmul work on a CUDA GPU.
+    use_checkpoint: bool = False
+    use_amp: bool = False
 
 
 @dataclass
@@ -100,6 +114,20 @@ def inverse_design(
     field_ = MaterialField(sheet, init=cfg.init_density)
     optimiser = torch.optim.Adam(field_.parameters, lr=cfg.lr)
 
+    # AMP plumbing. autocast runs on the sheet's device; the GradScaler is a no-op
+    # unless we are actually on CUDA (it exists only to rescale fp16 gradients).
+    amp_device = sheet.device.type if sheet.device.type in ("cpu", "cuda") else "cpu"
+    scaler = torch.amp.GradScaler(enabled=cfg.use_amp and amp_device == "cuda")
+
+    def loss_fn(density: Tensor) -> tuple[Tensor, Tensor]:
+        """Compliance-plus-budget loss for one design; the checkpointed unit."""
+        with torch.autocast(device_type=amp_device, enabled=cfg.use_amp):
+            result = solve_static(sheet, density, cfg.sim)
+            compliance = result.compliance
+            over_budget = torch.relu(density.mean() - cfg.vol_frac)
+            loss = compliance + cfg.budget_weight * over_budget**2
+        return loss, compliance
+
     loss_history: list[float] = []
     compliance_history: list[float] = []
     volume_history: list[float] = []
@@ -107,12 +135,14 @@ def inverse_design(
     for step in range(cfg.iters):
         optimiser.zero_grad()
         density = field_.density()
-        result = solve_static(sheet, density, cfg.sim)
-        compliance = result.compliance
-        over_budget = torch.relu(density.mean() - cfg.vol_frac)
-        loss = compliance + cfg.budget_weight * over_budget**2
-        loss.backward()
-        optimiser.step()
+        if cfg.use_checkpoint:
+            # Recompute the solve in backward instead of storing its activations.
+            loss, compliance = checkpoint(loss_fn, density, use_reentrant=False)
+        else:
+            loss, compliance = loss_fn(density)
+        scaler.scale(loss).backward()
+        scaler.step(optimiser)
+        scaler.update()
 
         loss_history.append(loss.item())
         compliance_history.append(compliance.item())

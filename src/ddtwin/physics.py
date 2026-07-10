@@ -175,7 +175,12 @@ def solve_static(sheet: Sheet, density: Tensor, cfg: SimConfig | None = None) ->
     free = _free_dofs(sheet)
     k_ff = k_global[free][:, free]
     f_f = f[free]
-    u_f = torch.linalg.solve(k_ff, f_f)
+    # The linear solve must run in the sheet's precision even under autocast (AMP):
+    # an ill-conditioned stiffness matrix solved in low precision destroys the
+    # physical gradient. Disable autocast here and cast the operands back to `dtype`.
+    amp_device = device.type if device.type in ("cpu", "cuda") else "cpu"
+    with torch.autocast(device_type=amp_device, enabled=False):
+        u_f = torch.linalg.solve(k_ff.to(dtype), f_f.to(dtype))
 
     u = torch.zeros(3 * sheet.num_nodes, dtype=dtype, device=device)
     u = u.index_copy(0, free.nonzero(as_tuple=True)[0], u_f)
