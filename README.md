@@ -238,8 +238,8 @@ from ddtwin.physics import solve_static
 sheet = Sheet.cantilever(rows=6, cols=10)
 density = torch.full((sheet.num_nodes,), 0.4, requires_grad=True)
 result = solve_static(sheet, density)
-result.compliance.backward()              # d(compliance)/d(density) in one pass
-print(result.compliance.item(), density.grad.shape)   # scalar, (60,)
+result.compliance.backward()  # d(compliance)/d(density) in one pass
+print(result.compliance.item(), density.grad.shape)  # scalar, (60,)
 ```
 
 ### Docker
