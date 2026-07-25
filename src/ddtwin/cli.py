@@ -67,6 +67,11 @@ def _cmd_optimise(args: argparse.Namespace) -> None:
     out = Path(args.out) if args.out else _WEB_DATA
     export_scene(out, sheet, result, cfg)
     print(f"[optimise] trajectory exported to {out}")
+    if args.vtk:
+        from ddtwin.vtk_export import export_vtk
+
+        pvd = export_vtk(args.vtk, sheet, result)
+        print(f"[optimise] VTK time series exported to {pvd} (open in ParaView and press play)")
 
 
 def _cmd_simulate(args: argparse.Namespace) -> None:
@@ -96,6 +101,11 @@ def _cmd_simulate(args: argparse.Namespace) -> None:
         )
         export_scene(args.out, sheet, wrapped, cfg)
         print(f"[simulate] trajectory exported to {args.out}")
+    if args.vtk:
+        from ddtwin.vtk_export import export_vtk
+
+        pvd = export_vtk(args.vtk, sheet, res)
+        print(f"[simulate] VTK time series exported to {pvd} (open in ParaView and press play)")
 
 
 def _cmd_benchmark(args: argparse.Namespace) -> None:
@@ -166,11 +176,17 @@ def main(argv: list[str] | None = None) -> None:
         help="matrix-free CG solve: O(N) memory instead of the dense (3N)^2 matrix",
     )
     p_opt.add_argument("--out", type=str, default=None, help="export dir (default web/data)")
+    p_opt.add_argument(
+        "--vtk", type=str, default=None, help="also export a ParaView .pvd time series to this dir"
+    )
     p_opt.set_defaults(func=_cmd_optimise)
 
     p_sim = sub.add_parser("simulate", help="solve a uniform design")
     _common(p_sim)
     p_sim.add_argument("--out", type=str, default=None)
+    p_sim.add_argument(
+        "--vtk", type=str, default=None, help="also export a ParaView .pvd time series to this dir"
+    )
     p_sim.set_defaults(func=_cmd_simulate)
 
     p_bench = sub.add_parser("benchmark", help="autodiff vs black-box comparison")

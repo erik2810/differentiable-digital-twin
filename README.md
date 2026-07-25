@@ -264,13 +264,19 @@ docker run --rm -v "$PWD/out:/app/web/data" ddtwin optimise --float32
 ## CLI
 
 ```
-ddtwin optimise  [--rows R --cols C] [--iters N] [--vol-frac V] [--float32] [--sparse] [--out DIR]
+ddtwin optimise  [--rows R --cols C] [--iters N] [--vol-frac V] [--float32] [--sparse] [--out DIR] [--vtk DIR]
 ddtwin benchmark [--rows R --cols C] [--iters N] [--fd-steps S] [--out FILE.json]
-ddtwin simulate  [--rows R --cols C] [--vol-frac V] [--out DIR]
+ddtwin simulate  [--rows R --cols C] [--vol-frac V] [--out DIR] [--vtk DIR]
 ```
 
 `--sparse` switches to the matrix-free CG solver (O(N) memory), which is what lets a
 high-resolution mesh run at all; see "Two solver paths" above.
+
+`--vtk DIR` also writes the settling trajectory as a VTK time series (`trajectory.pvd`
+plus one `.vtu` per frame) with the density field and per-frame displacement vectors, so
+the result opens directly in ParaView (press play) or `pyvista.read`. The writer in
+`vtk_export.py` targets the VTK XML format with no dependency on the VTK stack; the test
+suite round-trips every file through `meshio` as an independent reader.
 
 Running `ddtwin optimise` on the default 12×22 cantilever prints, e.g.:
 
